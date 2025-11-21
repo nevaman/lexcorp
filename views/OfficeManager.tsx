@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../services/supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
-import { BranchOffice } from '../types';
+import { BranchOffice, BranchAdminInvite } from '../types';
 import {
   Building2,
   MapPin,
@@ -9,7 +9,14 @@ import {
   Loader2,
   Sparkles,
   Globe,
+  X,
+  Copy,
+  User,
 } from '../components/ui/Icons';
+import {
+  createBranchAdminInvite,
+  fetchBranchAdminInvites,
+} from '../services/organizationService';
 
 const OfficeManager: React.FC = () => {
   const { organization } = useAuth();
@@ -23,6 +30,13 @@ const OfficeManager: React.FC = () => {
   });
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [selectedOffice, setSelectedOffice] = useState<BranchOffice | null>(null);
+  const [adminInvites, setAdminInvites] = useState<BranchAdminInvite[]>([]);
+  const [invitesLoading, setInvitesLoading] = useState(false);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteLink, setInviteLink] = useState<string | null>(null);
+  const [creatingInvite, setCreatingInvite] = useState(false);
 
   const fetchOffices = async () => {
     if (!organization) return;
@@ -46,6 +60,25 @@ const OfficeManager: React.FC = () => {
     fetchOffices();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [organization?.id]);
+
+  useEffect(() => {
+    const loadInvites = async () => {
+      if (!selectedOffice) return;
+      setInvitesLoading(true);
+      setInviteError(null);
+      try {
+        const data = await fetchBranchAdminInvites(selectedOffice.id);
+        setAdminInvites(data);
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : 'Unable to load branch admins.';
+        setInviteError(message);
+      } finally {
+        setInvitesLoading(false);
+      }
+    };
+    loadInvites();
+  }, [selectedOffice]);
 
   const handleCreate = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -90,6 +123,46 @@ const OfficeManager: React.FC = () => {
         .slice(0, 2),
     };
   }, [offices]);
+
+  const handleOpenOffice = (office: BranchOffice) => {
+    setSelectedOffice(office);
+    setInviteEmail('');
+    setInviteLink(null);
+  };
+
+  const handleCreateInvite = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!organization || !selectedOffice) return;
+    if (!inviteEmail) {
+      setInviteError('Email is required to invite an admin.');
+      return;
+    }
+    setCreatingInvite(true);
+    setInviteError(null);
+    setInviteLink(null);
+    try {
+      const token = typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : Math.random().toString(36).slice(2);
+      await createBranchAdminInvite({
+        organizationId: organization.id,
+        branchOfficeId: selectedOffice.id,
+        email: inviteEmail.trim().toLowerCase(),
+        inviteToken: token,
+      });
+      const link = `${window.location.origin}/#/invite/${token}`;
+      setInviteLink(link);
+      setInviteEmail('');
+      const data = await fetchBranchAdminInvites(selectedOffice.id);
+      setAdminInvites(data);
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : 'Unable to create invite.';
+      setInviteError(message);
+    } finally {
+      setCreatingInvite(false);
+    }
+  };
 
   return (
     <div className="p-10 min-h-screen bg-gradient-to-br from-[#020617] via-slate-900 to-slate-950 text-slate-100">
@@ -271,9 +344,10 @@ const OfficeManager: React.FC = () => {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
             {offices.map((office) => (
-              <div
+              <button
                 key={office.id}
-                className="bg-white/5 border border-white/10 rounded-2xl p-5 flex flex-col gap-4"
+                onClick={() => handleOpenOffice(office)}
+                className="bg-white/5 border border-white/10 rounded-2xl p-5 flex flex-col gap-4 text-left hover:border-brand/50 hover:bg-white/10 transition"
               >
                 <div className="flex items-center justify-between">
                   <div>
@@ -308,11 +382,154 @@ const OfficeManager: React.FC = () => {
                     </p>
                   </div>
                 </div>
-              </div>
+                <div>
+                  <p className="text-xs uppercase tracking-[0.4em] text-white/40">
+                    Location
+                  </p>
+                  <p className="text-sm flex items-center gap-2">
+                    <MapPin size={14} className="text-brand" /> {office.location}
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 gap-3 text-xs uppercase tracking-[0.3em] text-white/40">
+                  <div>
+                    <p>Headcount</p>
+                    <p className="text-lg tracking-normal text-white font-semibold">
+                      {office.headcount ?? 0}
+                    </p>
+                  </div>
+                  <div>
+                    <p>Created</p>
+                    <p className="text-sm tracking-normal text-white font-medium">
+                      {new Date(office.created_at).toLocaleDateString()}
+                    </p>
+                  </div>
+                </div>
+              </button>
             ))}
           </div>
         )}
       </div>
+
+      {selectedOffice && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="w-full max-w-2xl bg-white rounded-3xl shadow-2xl p-8 relative">
+            <button
+              onClick={() => setSelectedOffice(null)}
+              className="absolute top-4 right-4 p-2 rounded-full bg-slate-100 text-slate-500 hover:text-slate-900"
+              aria-label="Close"
+            >
+              <X size={16} />
+            </button>
+            <div className="mb-6">
+              <p className="text-xs uppercase tracking-[0.4em] text-slate-400">
+                Branch Control
+              </p>
+              <h2 className="text-3xl font-bold text-slate-900">{selectedOffice.identifier}</h2>
+              <p className="text-sm text-slate-500 flex items-center gap-2 mt-1">
+                <MapPin size={14} /> {selectedOffice.location}
+              </p>
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-6">
+              <form onSubmit={handleCreateInvite} className="space-y-4 bg-slate-50 rounded-2xl p-5 border border-slate-200">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.4em] text-slate-500">
+                    Create Branch Admin
+                  </p>
+                  <p className="text-sm text-slate-500 mt-1">
+                    Send an invitation link tied to this office.
+                  </p>
+                </div>
+                <input
+                  type="email"
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                  placeholder="admin@branch.com"
+                  className="w-full p-3 rounded-xl border border-slate-200 focus:border-brand focus:ring-2 focus:ring-brand/20 outline-none"
+                  required
+                />
+                {inviteError && <p className="text-xs text-red-500">{inviteError}</p>}
+                <button
+                  type="submit"
+                  disabled={creatingInvite}
+                  className="w-full bg-slate-900 text-white py-3 rounded-xl font-semibold flex items-center justify-center gap-2 disabled:opacity-60"
+                >
+                  {creatingInvite ? (
+                    <>
+                      <Loader2 className="animate-spin" size={16} /> Generating
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles size={16} /> Create Invite
+                    </>
+                  )}
+                </button>
+                {inviteLink && (
+                  <div className="bg-white rounded-xl border border-slate-200 p-3 text-sm flex items-center justify-between gap-2">
+                    <span className="truncate">{inviteLink}</span>
+                    <button
+                      type="button"
+                      onClick={() => navigator.clipboard.writeText(inviteLink)}
+                      className="p-2 rounded-lg bg-slate-900 text-white text-xs flex items-center gap-1"
+                    >
+                      <Copy size={14} /> Copy
+                    </button>
+                  </div>
+                )}
+              </form>
+
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.4em] text-slate-500">
+                      Branch Admins
+                    </p>
+                    <p className="text-sm text-slate-500 mt-1">
+                      Pending & active users for this office.
+                    </p>
+                  </div>
+                </div>
+                {invitesLoading ? (
+                  <div className="flex items-center justify-center py-10 text-slate-500">
+                    <Loader2 className="animate-spin" size={24} />
+                  </div>
+                ) : adminInvites.length === 0 ? (
+                  <p className="text-sm text-slate-500">No admins yet. Send an invite to get started.</p>
+                ) : (
+                  <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
+                    {adminInvites.map((invite) => (
+                      <div
+                        key={invite.id}
+                        className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex items-center justify-between"
+                      >
+                        <div>
+                          <p className="text-sm font-semibold text-slate-900 flex items-center gap-2">
+                            <User size={16} className="text-brand" /> {invite.email}
+                          </p>
+                          <p className="text-xs text-slate-500 mt-1">
+                            {invite.status === 'accepted'
+                              ? `Activated ${invite.accepted_at ? new Date(invite.accepted_at).toLocaleDateString() : ''}`
+                              : `Invited ${new Date(invite.created_at).toLocaleDateString()}`}
+                          </p>
+                        </div>
+                        <span
+                          className={`text-[11px] font-bold uppercase tracking-widest px-3 py-1 rounded-full ${
+                            invite.status === 'accepted'
+                              ? 'bg-emerald-100 text-emerald-700'
+                              : 'bg-amber-100 text-amber-700'
+                          }`}
+                        >
+                          {invite.status}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

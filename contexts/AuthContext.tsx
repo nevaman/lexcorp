@@ -8,6 +8,10 @@ import React, {
 import type { Session, User } from '@supabase/supabase-js';
 import { supabase } from '../services/supabaseClient';
 import type { BillingPlan, Organization } from '../types';
+import {
+  fetchMembershipForUser,
+  ensureMembership,
+} from '../services/organizationService';
 
 type AuthModeOrganizationPayload = {
   name: string;
@@ -19,6 +23,8 @@ interface AuthContextValue {
   session: Session | null;
   user: User | null;
   organization: Organization | null;
+  memberRole: 'org_admin' | 'branch_admin' | null;
+  branchOfficeId: string | null;
   loading: boolean;
   actionLoading: boolean;
   isOrgAdmin: boolean;
@@ -57,24 +63,55 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [organization, setOrganization] = useState<Organization | null>(null);
+  const [memberRole, setMemberRole] = useState<'org_admin' | 'branch_admin' | null>(null);
+  const [branchOfficeId, setBranchOfficeId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
 
   useEffect(() => {
     let mounted = true;
 
-    const hydrateOrganization = async (userId?: string) => {
+    const hydrateMembership = async (userId?: string) => {
       if (!mounted) return;
       if (!userId) {
         setOrganization(null);
+        setMemberRole(null);
+        setBranchOfficeId(null);
         return;
       }
       try {
-        const org = await fetchOrganization(userId);
-        if (mounted) setOrganization(org);
+        const { organization: org, member } = await fetchMembershipForUser(userId);
+        if (mounted) {
+          setOrganization(org);
+          setMemberRole(member?.role ?? null);
+          setBranchOfficeId(member?.branch_office_id ?? null);
+        }
+        if (!org) {
+          const { data, error } = await supabase
+            .from('organizations')
+            .select('*')
+            .eq('user_id', userId)
+            .maybeSingle<Organization>();
+          if (!mounted) return;
+          if (error) throw error;
+          if (data) {
+            await ensureMembership({
+              userId,
+              organizationId: data.id,
+              role: 'org_admin',
+            });
+            setOrganization(data);
+            setMemberRole('org_admin');
+            setBranchOfficeId(null);
+          }
+        }
       } catch (err) {
         console.warn('Organization fetch failed', err);
         if (mounted) setOrganization(null);
+        if (mounted) {
+          setMemberRole(null);
+          setBranchOfficeId(null);
+        }
       }
     };
 
@@ -87,7 +124,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
         const nextSession = data?.session ?? null;
         setSession(nextSession);
         setUser(nextSession?.user ?? null);
-        await hydrateOrganization(nextSession?.user?.id);
+        await hydrateMembership(nextSession?.user?.id);
       } catch (err) {
         console.error('Error initializing authentication', err);
         if (mounted) {
@@ -109,9 +146,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
       setSession(nextSession);
       setUser(nextSession?.user ?? null);
       if (nextSession?.user) {
-        hydrateOrganization(nextSession.user.id);
+        hydrateMembership(nextSession.user.id);
       } else {
         setOrganization(null);
+        setMemberRole(null);
+        setBranchOfficeId(null);
       }
     });
 
@@ -165,7 +204,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
         .single();
 
       if (orgError) throw orgError;
-      if (data.session) setOrganization(orgData as Organization);
+      if (data.session && data.user) {
+        setOrganization(orgData as Organization);
+        setMemberRole('org_admin');
+        setBranchOfficeId(null);
+        await ensureMembership({
+          userId: data.user.id,
+          organizationId: (orgData as Organization).id,
+          role: 'org_admin',
+        });
+      }
       return { requiresConfirmation: !data.session };
     } finally {
       setActionLoading(false);
@@ -191,7 +239,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
           .select()
           .single();
         if (error) throw error;
-        setOrganization(data as Organization);
+        const org = data as Organization;
+        setOrganization(org);
+        setMemberRole('org_admin');
+        setBranchOfficeId(null);
+        await ensureMembership({
+          userId: user.id,
+          organizationId: org.id,
+          role: 'org_admin',
+        });
       } finally {
         setActionLoading(false);
       }
@@ -203,19 +259,21 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
       const { error } = await supabase.auth.signOut();
       if (error) throw error;
       setOrganization(null);
+      setMemberRole(null);
+      setBranchOfficeId(null);
     } finally {
       setActionLoading(false);
     }
   };
 
-  const isOrgAdmin = Boolean(
-    user && organization && organization.user_id === user.id
-  );
+  const isOrgAdmin = memberRole === 'org_admin';
 
   const value: AuthContextValue = {
     session,
     user,
     organization,
+    memberRole,
+    branchOfficeId,
     loading,
     actionLoading,
     isOrgAdmin,

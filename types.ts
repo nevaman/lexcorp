@@ -85,6 +85,27 @@ export interface Organization {
   updated_at: string;
 }
 
+export interface OrganizationMember {
+  id: string;
+  organization_id: string;
+  user_id: string;
+  role: 'org_admin' | 'branch_admin';
+  branch_office_id?: string | null;
+  created_at: string;
+}
+
+export interface BranchAdminInvite {
+  id: string;
+  organization_id: string;
+  branch_office_id: string;
+  email: string;
+  invite_token: string;
+  status: 'pending' | 'accepted' | 'revoked';
+  user_id?: string | null;
+  created_at: string;
+  accepted_at?: string | null;
+}
+
 export interface BranchOffice {
   id: string;
   organization_id: string;

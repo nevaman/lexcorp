@@ -8,6 +8,7 @@ import SettingsView from './views/SettingsView';
 import OfficeManager from './views/OfficeManager';
 import OrganizationProfile from './views/OrganizationProfile';
 import AuthLanding from './views/AuthLanding';
+import BranchInvite from './views/BranchInvite';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import {
   fetchAgreementsForOrganization,
@@ -61,6 +62,7 @@ const AppShell: React.FC = () => {
     isOrgAdmin,
   } = useAuth();
   const [view, setView] = useState<ViewMode>('dashboard');
+  const [inviteToken, setInviteToken] = useState<string | null>(null);
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [agreements, setAgreements] = useState<Agreement[]>([]);
   const [agreementsLoading, setAgreementsLoading] = useState(false);
@@ -109,7 +111,14 @@ const AppShell: React.FC = () => {
       }
     };
     const handleHashChange = () => {
-      const parsedView = parseHashToView(window.location.hash);
+      const rawHash = window.location.hash;
+      if (rawHash.startsWith('#/invite/')) {
+        const token = rawHash.split('/')[2] || null;
+        setInviteToken(token);
+        return;
+      }
+      setInviteToken(null);
+      const parsedView = parseHashToView(rawHash);
       const safeView =
         parsedView === 'offices' && !isOrgAdmin ? DEFAULT_VIEW : parsedView;
       setView(safeView);
@@ -132,6 +141,7 @@ const AppShell: React.FC = () => {
       const nextView =
         targetView === 'offices' && !isOrgAdmin ? DEFAULT_VIEW : targetView;
       setView(nextView);
+      setInviteToken(null);
       if (typeof window !== 'undefined') {
         const targetHash = buildHashFromView(nextView);
         if (window.location.hash !== targetHash) {
@@ -264,6 +274,10 @@ const AppShell: React.FC = () => {
         );
     }
   };
+
+  if (inviteToken) {
+    return <BranchInvite token={inviteToken} />;
+  }
 
   if (loading) {
     return <LoadingScreen />;

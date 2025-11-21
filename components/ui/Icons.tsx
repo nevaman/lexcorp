@@ -40,6 +40,7 @@ import {
   LogOut,
   Building2,
   Loader2,
+  X,
 } from 'lucide-react';
 
 export {
@@ -84,4 +85,5 @@ export {
   LogOut,
   Building2,
   Loader2,
+  X,
 };
