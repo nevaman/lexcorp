@@ -2,14 +2,15 @@ import { supabase } from './supabaseClient';
 import {
   Organization,
   OrganizationMember,
-  BranchAdminInvite,
+  BranchInvite,
 } from '../types';
 
 type MembershipRow = {
   id: string;
-  role: 'org_admin' | 'branch_admin';
+  role: 'org_admin' | 'branch_admin' | 'branch_user';
   branch_office_id: string | null;
   organization_id: string;
+  department: string | null;
   organizations: Organization;
 };
 
@@ -18,7 +19,7 @@ export const fetchMembershipForUser = async (
 ): Promise<{ organization: Organization | null; member: OrganizationMember | null }> => {
   const { data, error } = await supabase
     .from('organization_members')
-    .select('id, role, branch_office_id, organization_id, created_at, organizations(*)')
+    .select('id, role, branch_office_id, organization_id, department, created_at, organizations(*)')
     .eq('user_id', userId)
     .maybeSingle<MembershipRow>();
 
@@ -37,6 +38,7 @@ export const fetchMembershipForUser = async (
     user_id: userId,
     role: data.role,
     branch_office_id: data.branch_office_id,
+    department: data.department,
     created_at: data.organizations?.created_at || new Date().toISOString(),
   };
 
@@ -46,8 +48,9 @@ export const fetchMembershipForUser = async (
 export const ensureMembership = async (payload: {
   userId: string;
   organizationId: string;
-  role: 'org_admin' | 'branch_admin';
+  role: 'org_admin' | 'branch_admin' | 'branch_user';
   branchOfficeId?: string | null;
+  department?: string | null;
 }) => {
   const { data, error } = await supabase
     .from('organization_members')
@@ -57,6 +60,7 @@ export const ensureMembership = async (payload: {
         organization_id: payload.organizationId,
         role: payload.role,
         branch_office_id: payload.branchOfficeId ?? null,
+        department: payload.department ?? null,
       },
       { onConflict: 'user_id,organization_id' }
     )
@@ -67,48 +71,65 @@ export const ensureMembership = async (payload: {
   return data as OrganizationMember;
 };
 
-export const createBranchAdminInvite = async (payload: {
+export const createBranchInvite = async (payload: {
   organizationId: string;
   branchOfficeId: string;
   email: string;
   inviteToken: string;
+  role: 'branch_admin' | 'branch_user';
+  fullName?: string;
+  department?: string;
+  title?: string;
 }) => {
   const { data, error } = await supabase
-    .from('branch_admin_invites')
+    .from('branch_invites')
     .insert({
       organization_id: payload.organizationId,
       branch_office_id: payload.branchOfficeId,
       email: payload.email,
       invite_token: payload.inviteToken,
+      role: payload.role,
+      full_name: payload.fullName || null,
+      department: payload.department || null,
+      title: payload.title || null,
+      contact_email: payload.email,
     })
     .select()
     .single();
 
   if (error) throw error;
-  return data as BranchAdminInvite;
+  return data as BranchInvite;
 };
 
-export const fetchBranchAdminInvites = async (branchOfficeId: string) => {
-  const { data, error } = await supabase
-    .from('branch_admin_invites')
+export const fetchBranchInvites = async (
+  branchOfficeId: string,
+  roleFilter?: 'branch_admin' | 'branch_user'
+) => {
+  let request = supabase
+    .from('branch_invites')
     .select('*')
-    .eq('branch_office_id', branchOfficeId)
-    .order('created_at', { ascending: false });
+    .eq('branch_office_id', branchOfficeId);
+
+  if (roleFilter) {
+    request = request.eq('role', roleFilter);
+  }
+
+  const { data, error } = await request.order('created_at', { ascending: false });
 
   if (error) throw error;
-  return (data || []) as BranchAdminInvite[];
+  return (data || []) as BranchInvite[];
 };
 
 export const fetchInviteByToken = async (
   token: string
 ): Promise<
-  (BranchAdminInvite & {
+  (BranchInvite & {
     branch_offices: { id: string; identifier: string; location: string };
     organizations: Organization;
   }) | null
 > => {
   const { data, error } = await supabase
-    .from('branch_admin_invites')
+    .from('branch_invites')
     .select(
       '*, branch_offices(id, identifier, location), organizations(id, name, hq_location, plan, created_at, updated_at)'
     )
@@ -121,7 +142,7 @@ export const fetchInviteByToken = async (
 
 export const markInviteAccepted = async (inviteId: string, userId: string) => {
   const { data, error } = await supabase
-    .from('branch_admin_invites')
+    .from('branch_invites')
     .update({
       status: 'accepted',
       user_id: userId,
@@ -132,6 +153,6 @@ export const markInviteAccepted = async (inviteId: string, userId: string) => {
     .single();
 
   if (error) throw error;
-  return data as BranchAdminInvite;
+  return data as BranchInvite;
 };
 

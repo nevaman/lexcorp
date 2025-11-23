@@ -41,6 +41,7 @@ import {
   Building2,
   Loader2,
   X,
+  Mail,
 } from 'lucide-react';
 
 export {
@@ -86,4 +87,5 @@ export {
   Building2,
   Loader2,
   X,
+  Mail,
 };

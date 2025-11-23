@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../services/supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
-import { BranchOffice, BranchAdminInvite } from '../types';
+import { BranchOffice, BranchInvite } from '../types';
 import {
   Building2,
   MapPin,
@@ -14,8 +14,8 @@ import {
   User,
 } from '../components/ui/Icons';
 import {
-  createBranchAdminInvite,
-  fetchBranchAdminInvites,
+  createBranchInvite,
+  fetchBranchInvites,
 } from '../services/organizationService';
 
 const OfficeManager: React.FC = () => {
@@ -31,7 +31,7 @@ const OfficeManager: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [selectedOffice, setSelectedOffice] = useState<BranchOffice | null>(null);
-  const [adminInvites, setAdminInvites] = useState<BranchAdminInvite[]>([]);
+  const [adminInvites, setAdminInvites] = useState<BranchInvite[]>([]);
   const [invitesLoading, setInvitesLoading] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [inviteEmail, setInviteEmail] = useState('');
@@ -67,7 +67,7 @@ const OfficeManager: React.FC = () => {
       setInvitesLoading(true);
       setInviteError(null);
       try {
-        const data = await fetchBranchAdminInvites(selectedOffice.id);
+        const data = await fetchBranchInvites(selectedOffice.id, 'branch_admin');
         setAdminInvites(data);
       } catch (err) {
         const message =
@@ -144,16 +144,34 @@ const OfficeManager: React.FC = () => {
       const token = typeof crypto !== 'undefined' && crypto.randomUUID
         ? crypto.randomUUID()
         : Math.random().toString(36).slice(2);
-      await createBranchAdminInvite({
+      await createBranchInvite({
         organizationId: organization.id,
         branchOfficeId: selectedOffice.id,
         email: inviteEmail.trim().toLowerCase(),
         inviteToken: token,
+        role: 'branch_admin',
       });
       const link = `${window.location.origin}/#/invite/${token}`;
       setInviteLink(link);
       setInviteEmail('');
-      const data = await fetchBranchAdminInvites(selectedOffice.id);
+
+      try {
+        await supabase.functions.invoke('send-branch-invite', {
+          body: {
+            email: inviteEmail.trim().toLowerCase(),
+            inviteLink: link,
+            branchIdentifier: selectedOffice.identifier,
+            organizationName: organization.name,
+          },
+        });
+      } catch (fnError) {
+        console.error('Failed to send invite email', fnError);
+        setInviteError(
+          'Invite saved, but email delivery failed. Copy the link below and share it manually.'
+        );
+      }
+
+      const data = await fetchBranchInvites(selectedOffice.id, 'branch_admin');
       setAdminInvites(data);
     } catch (err) {
       const message =

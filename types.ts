@@ -89,16 +89,22 @@ export interface OrganizationMember {
   id: string;
   organization_id: string;
   user_id: string;
-  role: 'org_admin' | 'branch_admin';
+  role: 'org_admin' | 'branch_admin' | 'branch_user';
   branch_office_id?: string | null;
+  department?: string | null;
   created_at: string;
 }
 
-export interface BranchAdminInvite {
+export interface BranchInvite {
   id: string;
   organization_id: string;
   branch_office_id: string;
   email: string;
+  role: 'branch_admin' | 'branch_user';
+  full_name?: string | null;
+  department?: string | null;
+  title?: string | null;
+  contact_email?: string | null;
   invite_token: string;
   status: 'pending' | 'accepted' | 'revoked';
   user_id?: string | null;
@@ -122,4 +128,5 @@ export type ViewMode =
   | 'templates'
   | 'analytics'
   | 'settings'
-  | 'offices';
+  | 'offices'
+  | 'departments';

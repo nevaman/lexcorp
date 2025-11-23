@@ -68,9 +68,10 @@ const BranchInvite: React.FC<BranchInviteProps> = ({ token }) => {
           emailRedirectTo:
             typeof window !== 'undefined' ? window.location.origin : undefined,
           data: {
-            role: 'branch_admin',
+            role: inviteDetails.role,
             branchOfficeId: inviteDetails.branch_office_id,
             organizationId: inviteDetails.organization_id,
+            department: inviteDetails.department || undefined,
           },
         },
       });
@@ -82,8 +83,9 @@ const BranchInvite: React.FC<BranchInviteProps> = ({ token }) => {
       await ensureMembership({
         userId,
         organizationId: inviteDetails.organization_id,
-        role: 'branch_admin',
+        role: inviteDetails.role === 'branch_user' ? 'branch_user' : 'branch_admin',
         branchOfficeId: inviteDetails.branch_office_id,
+        department: inviteDetails.department || null,
       });
       await markInviteAccepted(inviteDetails.id, userId);
       setSuccess(true);
@@ -130,11 +132,10 @@ const BranchInvite: React.FC<BranchInviteProps> = ({ token }) => {
             {success ? (
               <>
                 <p className="text-lg font-semibold">
-                  Your branch admin account is ready!
+                  Your account is ready!
                 </p>
                 <p className="text-sm text-white/70">
-                  You can now sign in from the main portal using your email and the
-                  password you just set.
+                  You can now sign in from the main portal using your email and the password you just set.
                 </p>
                 <button
                   onClick={() => {
@@ -165,6 +166,12 @@ const BranchInvite: React.FC<BranchInviteProps> = ({ token }) => {
                 {inviteDetails.branch_offices.location})
               </p>
               <p className="text-sm text-white/60 mt-1">Invited email: {inviteDetails.email}</p>
+              {inviteDetails.role === 'branch_user' && (
+                <p className="text-sm text-white/60 mt-1">
+                  Department: {inviteDetails.department || 'Unassigned'}
+                  {inviteDetails.title && ` • ${inviteDetails.title}`}
+                </p>
+              )}
             </div>
 
             <form onSubmit={handleAccept} className="space-y-4">

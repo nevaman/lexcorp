@@ -9,6 +9,7 @@ import OfficeManager from './views/OfficeManager';
 import OrganizationProfile from './views/OrganizationProfile';
 import AuthLanding from './views/AuthLanding';
 import BranchInvite from './views/BranchInvite';
+import BranchUserManager from './views/BranchUserManager';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import {
   fetchAgreementsForOrganization,
@@ -60,6 +61,7 @@ const AppShell: React.FC = () => {
     signOut,
     actionLoading,
     isOrgAdmin,
+    memberRole,
   } = useAuth();
   const [view, setView] = useState<ViewMode>('dashboard');
   const [inviteToken, setInviteToken] = useState<string | null>(null);
@@ -80,6 +82,16 @@ const AppShell: React.FC = () => {
   const handleSignOut = () => {
     signOut().catch((err) => console.error('Sign out failed', err));
   };
+  const isBranchAdmin = memberRole === 'branch_admin';
+
+  const enforceViewAccess = useCallback(
+    (targetView: ViewMode) => {
+      if (targetView === 'offices' && !isOrgAdmin) return DEFAULT_VIEW;
+      if (targetView === 'departments' && !isBranchAdmin) return DEFAULT_VIEW;
+      return targetView;
+    },
+    [isOrgAdmin, isBranchAdmin]
+  );
 
   const refreshAgreements = useCallback(async () => {
     if (!organization?.id) {
@@ -119,8 +131,7 @@ const AppShell: React.FC = () => {
       }
       setInviteToken(null);
       const parsedView = parseHashToView(rawHash);
-      const safeView =
-        parsedView === 'offices' && !isOrgAdmin ? DEFAULT_VIEW : parsedView;
+      const safeView = enforceViewAccess(parsedView);
       setView(safeView);
       if (safeView !== parsedView) {
         const correctedHash = buildHashFromView(safeView);
@@ -134,12 +145,11 @@ const AppShell: React.FC = () => {
     handleHashChange();
     window.addEventListener('hashchange', handleHashChange);
     return () => window.removeEventListener('hashchange', handleHashChange);
-  }, [isOrgAdmin]);
+  }, [enforceViewAccess]);
 
   const navigateTo = useCallback(
     (targetView: ViewMode) => {
-      const nextView =
-        targetView === 'offices' && !isOrgAdmin ? DEFAULT_VIEW : targetView;
+      const nextView = enforceViewAccess(targetView);
       setView(nextView);
       setInviteToken(null);
       if (typeof window !== 'undefined') {
@@ -149,7 +159,7 @@ const AppShell: React.FC = () => {
         }
       }
     },
-    [isOrgAdmin]
+    [enforceViewAccess]
   );
 
   // Apply theme to HTML element
@@ -265,6 +275,13 @@ const AppShell: React.FC = () => {
             onOpenAgreement={handleOpenAgreement}
           />
         );
+      case 'departments':
+        return isBranchAdmin ? <BranchUserManager /> : (
+          <DocumentManager
+            agreements={agreements}
+            onOpenAgreement={handleOpenAgreement}
+          />
+        );
       default:
         return (
           <DocumentManager
@@ -307,6 +324,7 @@ const AppShell: React.FC = () => {
         onSignOut={handleSignOut}
         signingOut={actionLoading}
         isOrgAdmin={isOrgAdmin}
+        memberRole={memberRole}
       />
       <main className="flex-1 ml-72 h-screen overflow-auto scrollbar-hide bg-gradient-to-br from-slate-50 to-slate-100 dark:from-[#020617] dark:to-[#0f172a]">
         {renderContent()}

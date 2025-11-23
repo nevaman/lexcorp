@@ -24,3 +24,25 @@ View your app in AI Studio: https://ai.studio/apps/drive/14XvoCQCPneyoMDWXYMmwtH
 3. Apply the Supabase migrations (via `supabase db push` or run the SQL files in `supabase/migrations`).
 4. Run the app:
    `npm run dev`
+
+## Branch admin invite emails
+
+Inviting a branch admin triggers the Edge Function `send-branch-invite`, which sends a branded email via SMTP. Configure it once per Supabase project:
+
+1. Set the SMTP credentials (Supabase-provided or your own) as secrets:
+   ```
+   supabase secrets set \
+     SMTP_HOST=... \
+     SMTP_PORT=465 \
+     SMTP_USER=... \
+     SMTP_PASS=... \
+     SMTP_SENDER="LexCorp Legal <legal@example.com>"
+   ```
+   
+2. Deploy the function:
+   ```
+   supabase functions deploy send-branch-invite
+   ```
+   During local development you can run `supabase functions serve send-branch-invite` in another terminal to test deliveries.
+
+If email delivery fails, the UI will still surface the generated invite link so you can share it manually.

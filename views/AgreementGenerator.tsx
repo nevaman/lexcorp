@@ -200,7 +200,7 @@ const AgreementGenerator: React.FC<GeneratorProps> = ({ onSave, onBack, initialD
                   </>
                 ) : (
                   <>
-                    <Save size={18} /> Save & Finalize
+                <Save size={18} /> Save & Finalize
                   </>
                 )}
             </button>

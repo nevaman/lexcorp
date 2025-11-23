@@ -10,6 +10,7 @@ import {
   Moon,
   LogOut,
   Building2,
+  Briefcase,
 } from './ui/Icons';
 import { ViewMode } from '../types';
 
@@ -23,6 +24,7 @@ interface SidebarProps {
   onSignOut?: () => void;
   signingOut?: boolean;
   isOrgAdmin?: boolean;
+  memberRole?: 'org_admin' | 'branch_admin' | 'branch_user' | null;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({
@@ -35,6 +37,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   onSignOut,
   signingOut,
   isOrgAdmin,
+  memberRole,
 }) => {
   const navItems = [
     { id: 'dashboard', label: 'Overview', icon: LayoutDashboard },
@@ -44,6 +47,9 @@ const Sidebar: React.FC<SidebarProps> = ({
     { id: 'settings', label: 'Brand Settings', icon: Settings },
     ...(isOrgAdmin
       ? [{ id: 'offices', label: 'Office Network', icon: Building2 }]
+      : []),
+    ...(memberRole === 'branch_admin'
+      ? [{ id: 'departments', label: 'Branch Team', icon: Briefcase }]
       : []),
   ];
 
