@@ -74,7 +74,9 @@ const TemplateBuilder: React.FC = () => {
     visibility: 'organization' as 'organization' | 'branch',
   });
 
-  const canEdit = memberRole === 'org_admin' || memberRole === 'branch_admin';
+  const isOrgAdmin = memberRole === 'org_admin';
+  const isBranchAdmin = memberRole === 'branch_admin';
+  const canEdit = isOrgAdmin || isBranchAdmin;
 
   const loadTemplates = async () => {
     if (!organization) {
@@ -189,14 +191,21 @@ const TemplateBuilder: React.FC = () => {
     setSuccess(null);
     try {
       const templateId = activeTemplateId ?? crypto.randomUUID();
+      const effectiveVisibility = isOrgAdmin ? templateMeta.visibility : 'branch';
+      const branchTarget =
+        effectiveVisibility === 'branch' ? branchOfficeId ?? null : null;
+      if (effectiveVisibility === 'branch' && !branchTarget) {
+        setError('Branch templates require a branch office context.');
+        setSaving(false);
+        return;
+      }
       const payload: Template = {
         id: templateId,
         organization_id: organization.id,
-        branch_office_id:
-          templateMeta.visibility === 'branch' ? branchOfficeId ?? null : null,
+        branch_office_id: branchTarget,
         name: templateMeta.name.trim(),
         description: templateMeta.description.trim(),
-        visibility: templateMeta.visibility,
+        visibility: effectiveVisibility,
         sections: draft,
         created_by: user.id,
         created_at: new Date().toISOString(),
@@ -229,6 +238,10 @@ const TemplateBuilder: React.FC = () => {
         {canEdit && (
           <button
             onClick={() => {
+              if (isBranchAdmin && !branchOfficeId) {
+                setError('Branch templates require an assigned office.');
+                return;
+              }
               const newId = crypto.randomUUID();
               setTemplates((prev) => [
                 {
@@ -237,7 +250,7 @@ const TemplateBuilder: React.FC = () => {
                   branch_office_id: null,
                   name: 'New Template',
                   description: '',
-                  visibility: 'organization',
+                  visibility: isBranchAdmin ? 'branch' : 'organization',
                   sections: [],
                   created_by: user?.id || null,
                   created_at: new Date().toISOString(),
@@ -249,7 +262,7 @@ const TemplateBuilder: React.FC = () => {
               setTemplateMeta({
                 name: 'New Template',
                 description: '',
-                visibility: branchOfficeId ? 'branch' : 'organization',
+                visibility: isBranchAdmin ? 'branch' : 'organization',
               });
               setDraft([]);
             }}
@@ -364,7 +377,7 @@ const TemplateBuilder: React.FC = () => {
                   disabled={!canEdit}
                   rows={2}
                 />
-                {branchOfficeId && canEdit && (
+                {branchOfficeId && canEdit && isOrgAdmin && (
                   <div className="text-xs text-slate-300 flex items-center gap-2">
                     Visibility:
                     <select
@@ -382,6 +395,11 @@ const TemplateBuilder: React.FC = () => {
                       <option value="organization">Organization-wide</option>
                     </select>
                   </div>
+                )}
+                {isBranchAdmin && branchOfficeId && (
+              <p className="text-xs text-slate-400">
+                Branch scope only for office {branchOfficeId.slice(0, 8)}…
+              </p>
                 )}
               </div>
               <div className="p-8 flex-1 space-y-4 bg-slate-50 overflow-y-auto">

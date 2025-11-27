@@ -10,6 +10,7 @@ import OrganizationProfile from './views/OrganizationProfile';
 import AuthLanding from './views/AuthLanding';
 import BranchInvite from './views/BranchInvite';
 import BranchUserManager from './views/BranchUserManager';
+import VendorManager from './views/VendorManager';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import {
   fetchAgreementsForOrganization,
@@ -28,6 +29,8 @@ const ROUTABLE_VIEWS: ViewMode[] = [
   'analytics',
   'settings',
   'offices',
+  'vendors',
+  'departments',
 ];
 
 const DEFAULT_VIEW: ViewMode = 'dashboard';
@@ -62,6 +65,7 @@ const AppShell: React.FC = () => {
     actionLoading,
     isOrgAdmin,
     memberRole,
+    branchOfficeId,
   } = useAuth();
   const [view, setView] = useState<ViewMode>('dashboard');
   const [inviteToken, setInviteToken] = useState<string | null>(null);
@@ -83,11 +87,17 @@ const AppShell: React.FC = () => {
     signOut().catch((err) => console.error('Sign out failed', err));
   };
   const isBranchAdmin = memberRole === 'branch_admin';
+  const isBranchUser = memberRole === 'branch_user';
 
   const enforceViewAccess = useCallback(
     (targetView: ViewMode) => {
       if (targetView === 'offices' && !isOrgAdmin) return DEFAULT_VIEW;
       if (targetView === 'departments' && !isBranchAdmin) return DEFAULT_VIEW;
+      if (
+        targetView === 'vendors' &&
+        !(isOrgAdmin || isBranchAdmin)
+      )
+        return DEFAULT_VIEW;
       return targetView;
     },
     [isOrgAdmin, isBranchAdmin]
@@ -101,7 +111,8 @@ const AppShell: React.FC = () => {
     setAgreementsLoading(true);
     setAgreementsError(null);
     try {
-      const data = await fetchAgreementsForOrganization(organization.id);
+      const filter = !isOrgAdmin && branchOfficeId ? { branchOfficeId } : undefined;
+      const data = await fetchAgreementsForOrganization(organization.id, filter);
       setAgreements(data);
     } catch (err) {
       console.error('Failed to load agreements', err);
@@ -109,7 +120,7 @@ const AppShell: React.FC = () => {
     } finally {
       setAgreementsLoading(false);
     }
-  }, [organization?.id]);
+  }, [organization?.id, isOrgAdmin, branchOfficeId]);
 
   useEffect(() => {
     refreshAgreements();
@@ -246,15 +257,15 @@ const AppShell: React.FC = () => {
           );
         }
         return (
-          <DocumentManager
-            agreements={agreements}
-            onOpenAgreement={handleOpenAgreement}
+          <DocumentManager 
+            agreements={agreements} 
+            onOpenAgreement={handleOpenAgreement} 
           />
         );
       case 'generator':
         return (
-          <AgreementGenerator
-            onSave={handleSaveAgreement}
+          <AgreementGenerator 
+            onSave={handleSaveAgreement} 
             onBack={() => navigateTo('dashboard')}
             initialData={editingAgreement}
             brandSettings={brandSettings}
@@ -282,6 +293,15 @@ const AppShell: React.FC = () => {
             onOpenAgreement={handleOpenAgreement}
           />
         );
+      case 'vendors':
+        return (isOrgAdmin || isBranchAdmin)
+          ? <VendorManager />
+          : (
+            <DocumentManager
+              agreements={agreements}
+              onOpenAgreement={handleOpenAgreement}
+            />
+          );
       default:
         return (
           <DocumentManager
@@ -314,8 +334,8 @@ const AppShell: React.FC = () => {
         isDarkMode ? 'bg-[#020617] text-slate-200' : 'bg-slate-50 text-slate-900'
       }`}
     >
-      <Sidebar
-        currentView={view}
+      <Sidebar 
+        currentView={view} 
         setView={handleSidebarNavigate}
         isDarkMode={isDarkMode}
         toggleTheme={() => setIsDarkMode(!isDarkMode)}

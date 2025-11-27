@@ -1,12 +1,30 @@
 import React, { useState, useEffect } from 'react';
-import { Agreement, AgreementStatus, RiskLevel, Clause, BrandSettings, Template } from '../types';
-import { 
-  Save, ArrowLeft, Sparkles, 
-  MessageSquare, Info 
+import {
+  Agreement,
+  AgreementStatus,
+  RiskLevel,
+  Clause,
+  BrandSettings,
+  Template,
+  Vendor,
+  BranchOffice,
+} from '../types';
+import {
+  Save,
+  ArrowLeft,
+  Sparkles,
+  MessageSquare,
+  Info,
+  Store,
+  Plus,
+  X,
+  Loader2,
 } from '../components/ui/Icons';
 import { generateClauseContent, analyzeRisk } from '../services/geminiService';
 import { fetchTemplates } from '../services/templateService';
+import { fetchVendors, createVendor } from '../services/vendorService';
 import { useAuth } from '../contexts/AuthContext';
+import { supabase } from '../services/supabaseClient';
 
 interface GeneratorProps {
   onSave: (agreement: Agreement) => Promise<void>;
@@ -23,13 +41,34 @@ const defaultSections: Clause[] = [
   { id: '5', title: 'Governing Law', content: 'This Agreement shall be governed by the laws of the State of Delaware.', type: 'standard' },
 ];
 
-const AgreementGenerator: React.FC<GeneratorProps> = ({ onSave, onBack, initialData, brandSettings }) => {
-  const { organization, branchOfficeId } = useAuth();
+const AgreementGenerator: React.FC<GeneratorProps> = ({
+  onSave,
+  onBack,
+  initialData,
+  brandSettings,
+}) => {
+  const { organization, branchOfficeId, memberRole, isOrgAdmin, user } = useAuth();
+  const isBranchAdmin = memberRole === 'branch_admin';
   const [title, setTitle] = useState(initialData?.title || 'New Agreement');
   const [counterparty, setCounterparty] = useState(initialData?.counterparty || '');
   const [type, setType] = useState(initialData?.tags?.[0] || 'Service Agreement');
   const [sections, setSections] = useState<Clause[]>(initialData?.sections || defaultSections);
   const [templates, setTemplates] = useState<Template[]>([]);
+  const [vendors, setVendors] = useState<Vendor[]>([]);
+  const [vendorsLoading, setVendorsLoading] = useState(false);
+  const [vendorError, setVendorError] = useState<string | null>(null);
+  const [quickVendorError, setQuickVendorError] = useState<string | null>(null);
+  const [selectedVendorId, setSelectedVendorId] = useState<string | null>(null);
+  const [showQuickVendor, setShowQuickVendor] = useState(false);
+  const [quickVendorSaving, setQuickVendorSaving] = useState(false);
+  const [branches, setBranches] = useState<BranchOffice[]>([]);
+  const [quickVendorForm, setQuickVendorForm] = useState({
+    name: '',
+    tin: '',
+    scope: isOrgAdmin ? 'organization' : 'branch',
+    branchOfficeId: branchOfficeId ?? '',
+    contactEmail: '',
+  });
   useEffect(() => {
     const loadTemplates = async () => {
       if (!organization) return;
@@ -45,6 +84,61 @@ const AgreementGenerator: React.FC<GeneratorProps> = ({ onSave, onBack, initialD
     };
     loadTemplates();
   }, [organization?.id, branchOfficeId]);
+
+  useEffect(() => {
+    const loadVendors = async () => {
+      if (!organization) return;
+      setVendorsLoading(true);
+      setVendorError(null);
+      try {
+        const data = await fetchVendors({
+          organizationId: organization.id,
+          branchOfficeId: branchOfficeId ?? null,
+          scope: isOrgAdmin ? 'all' : undefined,
+        });
+        setVendors(data);
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : 'Unable to load vendors.';
+        setVendorError(message);
+      } finally {
+        setVendorsLoading(false);
+      }
+    };
+    loadVendors();
+  }, [organization?.id, branchOfficeId, isOrgAdmin]);
+
+  useEffect(() => {
+    if (!counterparty) {
+      setSelectedVendorId(null);
+      return;
+    }
+    const match = vendors.find((v) => v.name === counterparty);
+    setSelectedVendorId(match ? match.id : null);
+  }, [counterparty, vendors]);
+
+  useEffect(() => {
+    const loadBranches = async () => {
+      if (!organization || !isOrgAdmin) return;
+      const { data, error } = await supabase
+        .from('branch_offices')
+        .select('id, identifier, location')
+        .eq('organization_id', organization.id)
+        .order('identifier', { ascending: true });
+      if (!error && data) {
+        setBranches(data as BranchOffice[]);
+      }
+    };
+    loadBranches();
+  }, [organization?.id, isOrgAdmin]);
+
+  useEffect(() => {
+    setQuickVendorForm((prev) => ({
+      ...prev,
+      branchOfficeId: branchOfficeId ?? '',
+      scope: isOrgAdmin ? prev.scope : 'branch',
+    }));
+  }, [branchOfficeId, isOrgAdmin]);
   const [riskData, setRiskData] = useState<{ level: string; reason: string }>({
     level: initialData?.riskLevel || 'Low',
     reason: initialData ? 'Existing agreement loaded.' : 'Standard draft.',
@@ -102,11 +196,92 @@ const AgreementGenerator: React.FC<GeneratorProps> = ({ onSave, onBack, initialD
     return 'draft-' + Math.random().toString(36).substring(2, 15);
   };
 
+  const handleVendorSelect = (value: string) => {
+    if (value === '__add') {
+      setQuickVendorForm({
+        name: counterparty || '',
+        tin: '',
+        scope: isOrgAdmin ? 'organization' : 'branch',
+        branchOfficeId: branchOfficeId ?? '',
+        contactEmail: '',
+      });
+      setQuickVendorError(null);
+      setShowQuickVendor(true);
+      return;
+    }
+    if (value === '__custom') {
+      setSelectedVendorId(null);
+      return;
+    }
+    if (!value) {
+      setSelectedVendorId(null);
+      setCounterparty('');
+      return;
+    }
+    setSelectedVendorId(value);
+    const selected = vendors.find((vendor) => vendor.id === value);
+    if (selected) {
+      setCounterparty(selected.name);
+    }
+  };
+
+  const handleQuickVendorClose = () => {
+    setShowQuickVendor(false);
+    setQuickVendorError(null);
+  };
+
+  const handleQuickVendorSave = async () => {
+    if (!organization) return;
+    if (!quickVendorForm.name.trim() || !quickVendorForm.tin.trim()) {
+      setQuickVendorError('Vendor name and TIN are required.');
+      return;
+    }
+    const branchAssignment = isOrgAdmin
+      ? quickVendorForm.scope === 'organization'
+        ? null
+        : quickVendorForm.branchOfficeId || null
+      : branchOfficeId;
+    if (quickVendorForm.scope === 'branch' && !branchAssignment) {
+      setQuickVendorError('Assign a branch to create this vendor.');
+      return;
+    }
+    setQuickVendorSaving(true);
+    setQuickVendorError(null);
+    try {
+      const newVendor = await createVendor({
+        organizationId: organization.id,
+        branchOfficeId: branchAssignment ?? null,
+        name: quickVendorForm.name.trim(),
+        tin: quickVendorForm.tin.trim(),
+        contactEmail: quickVendorForm.contactEmail.trim() || undefined,
+        createdBy: user?.id,
+      });
+      setVendors((prev) => [newVendor, ...prev]);
+      setSelectedVendorId(newVendor.id);
+      setCounterparty(newVendor.name);
+      setShowQuickVendor(false);
+      setQuickVendorForm({
+        name: '',
+        tin: '',
+        scope: isOrgAdmin ? 'organization' : 'branch',
+        branchOfficeId: branchOfficeId ?? '',
+        contactEmail: '',
+      });
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : 'Unable to add vendor.';
+      setQuickVendorError(message);
+    } finally {
+      setQuickVendorSaving(false);
+    }
+  };
+
   const handleSave = async () => {
     const newAgreement: Agreement = {
       id: initialData?.id || generateId(),
       title,
       counterparty,
+      branchOfficeId: branchOfficeId ?? initialData?.branchOfficeId ?? null,
       department: initialData?.department || 'Legal',
       owner: initialData?.owner || 'Current User',
       effectiveDate: initialData?.effectiveDate || new Date().toISOString().split('T')[0],
@@ -140,7 +315,159 @@ const AgreementGenerator: React.FC<GeneratorProps> = ({ onSave, onBack, initialD
   // To truly "add a page", we render visual dividers based on estimated pixels.
 
   return (
-    <div className="flex h-full bg-slate-100 dark:bg-[#020617] text-slate-900 dark:text-slate-300">
+    <>
+      {showQuickVendor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white dark:bg-[#0f172a] rounded-3xl shadow-2xl w-full max-w-lg p-8 relative">
+            <button
+              className="absolute top-4 right-4 text-slate-500 hover:text-slate-800 dark:hover:text-white"
+              onClick={handleQuickVendorClose}
+            >
+              <X size={18} />
+            </button>
+            <div className="flex items-center gap-3 mb-6">
+              <span className="w-12 h-12 rounded-2xl bg-brand/10 text-brand flex items-center justify-center">
+                <Store size={20} />
+              </span>
+              <div>
+                <p className="text-xs uppercase tracking-[0.4em] text-slate-400 dark:text-slate-500">
+                  Quick Vendor
+                </p>
+                <h2 className="text-xl font-bold text-slate-900 dark:text-white">
+                  Add from Drafting Studio
+                </h2>
+              </div>
+            </div>
+            {quickVendorError && (
+              <div className="text-sm text-red-500 bg-red-50 border border-red-200 rounded-2xl px-3 py-2 mb-4">
+                {quickVendorError}
+              </div>
+            )}
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-bold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
+                  Vendor Name
+                </label>
+                <input
+                  type="text"
+                  value={quickVendorForm.name}
+                  onChange={(e) =>
+                    setQuickVendorForm((prev) => ({ ...prev, name: e.target.value }))
+                  }
+                  className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#020617] text-sm mt-1"
+                  placeholder="e.g. Polar Manufacturing"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-bold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
+                  TIN
+                </label>
+                <input
+                  type="text"
+                  value={quickVendorForm.tin}
+                  onChange={(e) =>
+                    setQuickVendorForm((prev) => ({ ...prev, tin: e.target.value }))
+                  }
+                  className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#020617] text-sm mt-1"
+                  placeholder="Tax identification number"
+                />
+              </div>
+              {isOrgAdmin && (
+                <div className="flex gap-3">
+                  <label className="flex-1 p-3 border border-slate-200 dark:border-slate-800 rounded-xl text-sm flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="quick-scope"
+                      value="organization"
+                      checked={quickVendorForm.scope === 'organization'}
+                      onChange={() =>
+                        setQuickVendorForm((prev) => ({ ...prev, scope: 'organization' }))
+                      }
+                    />
+                    Org-wide
+                  </label>
+                  <label className="flex-1 p-3 border border-slate-200 dark:border-slate-800 rounded-xl text-sm flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="quick-scope"
+                      value="branch"
+                      checked={quickVendorForm.scope === 'branch'}
+                      onChange={() =>
+                        setQuickVendorForm((prev) => ({ ...prev, scope: 'branch' }))
+                      }
+                    />
+                    Branch
+                  </label>
+                </div>
+              )}
+              {(isOrgAdmin || branchOfficeId) && quickVendorForm.scope === 'branch' && (
+                <div>
+                  <label className="text-xs font-bold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
+                    Assign Branch
+                  </label>
+                  <select
+                    value={
+                      isOrgAdmin
+                        ? quickVendorForm.branchOfficeId
+                        : branchOfficeId ?? quickVendorForm.branchOfficeId
+                    }
+                    onChange={(e) =>
+                      setQuickVendorForm((prev) => ({
+                        ...prev,
+                        branchOfficeId: e.target.value,
+                      }))
+                    }
+                    className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#020617] text-sm mt-1"
+                  >
+                    <option value="">Select branch</option>
+                    {(isOrgAdmin ? branches : branches.filter((b) => b.id === branchOfficeId)).map(
+                      (branch) => (
+                        <option key={branch.id} value={branch.id}>
+                          {branch.identifier} • {branch.location}
+                        </option>
+                      )
+                    )}
+                  </select>
+                </div>
+              )}
+              <div>
+                <label className="text-xs font-bold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
+                  Contact Email
+                </label>
+                <input
+                  type="email"
+                  value={quickVendorForm.contactEmail}
+                  onChange={(e) =>
+                    setQuickVendorForm((prev) => ({
+                      ...prev,
+                      contactEmail: e.target.value,
+                    }))
+                  }
+                  className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#020617] text-sm mt-1"
+                  placeholder="legal@vendor.com"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={handleQuickVendorSave}
+                disabled={quickVendorSaving}
+                className="w-full bg-brand text-white py-3 rounded-xl font-semibold flex items-center justify-center gap-2 mt-2 disabled:opacity-60"
+              >
+                {quickVendorSaving ? (
+                  <>
+                    <Loader2 className="animate-spin" size={16} /> Saving vendor…
+                  </>
+                ) : (
+                  <>
+                    <Plus size={16} /> Save Vendor
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      <div className="flex h-full bg-slate-100 dark:bg-[#020617] text-slate-900 dark:text-slate-300">
       {/* Left Sidebar: Metadata */}
       <div className="w-80 bg-white dark:bg-[#0f172a] border-r border-slate-200 dark:border-white/5 flex flex-col h-full overflow-y-auto shadow-xl z-10">
         <div className="p-6 border-b border-slate-200 dark:border-white/5">
@@ -162,28 +489,74 @@ const AgreementGenerator: React.FC<GeneratorProps> = ({ onSave, onBack, initialD
                     placeholder="Agreement Title"
                 />
             </div>
-            <div className="space-y-1">
+            <div className="space-y-2">
                 <label className="block text-[10px] font-bold text-brand/80 uppercase tracking-wider">Counterparty</label>
-                <input 
-                    type="text" 
+                <div className="space-y-2">
+                  <select
+                    value={selectedVendorId ?? (counterparty ? '__custom' : '')}
+                    onChange={(e) => handleVendorSelect(e.target.value)}
+                    className="w-full p-3 bg-slate-50 dark:bg-[#1e293b] border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-white focus:ring-2 focus:ring-brand/50 outline-none"
+                  >
+                    <option value="">
+                      {vendorsLoading ? 'Loading vendors…' : 'Select registered vendor'}
+                    </option>
+                    {vendors.map((vendor) => (
+                      <option key={vendor.id} value={vendor.id}>
+                        {vendor.name}
+                        {vendor.branch_office_id ? ' • Branch' : ' • Org'}
+                      </option>
+                    ))}
+                    <option value="__custom">Manual entry</option>
+                    <option value="__add">+ Add vendor</option>
+                  </select>
+                  {vendorError && (
+                    <p className="text-xs text-red-500">{vendorError}</p>
+                  )}
+                  <input
+                    type="text"
                     value={counterparty}
-                    onChange={(e) => setCounterparty(e.target.value)}
+                    onChange={(e) => {
+                      setSelectedVendorId(null);
+                      setCounterparty(e.target.value);
+                    }}
                     className="w-full p-3 bg-slate-50 dark:bg-[#1e293b] border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-white focus:ring-2 focus:ring-brand/50 outline-none transition-all"
                     placeholder="e.g. Acme Corp"
-                />
+                    readOnly={!!selectedVendorId}
+                  />
+                  {selectedVendorId && (
+                    <p className="text-[11px] text-brand">
+                      Linked to vendor record — edit vendor in the Vendors tab.
+                    </p>
+                  )}
+                </div>
             </div>
             <div className="space-y-1">
-                <label className="block text-[10px] font-bold text-brand/80 uppercase tracking-wider">Type</label>
+                <label className="block text-[10px] font-bold text-brand/80 uppercase tracking-wider">Template</label>
                 <div className="relative">
                     <select 
                         value={type}
-                        onChange={(e) => setType(e.target.value)}
+                        onChange={(e) => {
+                          const selected = templates.find(t => t.name === e.target.value);
+                          setType(e.target.value);
+                          if (selected) {
+                            setSections(
+                              selected.sections?.map((section) => ({
+                                id: section.id || crypto.randomUUID(),
+                                title: section.title,
+                                content: section.content,
+                                type: 'standard',
+                              })) || defaultSections
+                            );
+                          }
+                        }}
                         className="w-full p-3 bg-slate-50 dark:bg-[#1e293b] border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-white focus:ring-2 focus:ring-brand/50 outline-none appearance-none"
                     >
-                        <option>Service Agreement</option>
-                        <option>NDA</option>
-                        <option>Employment Contract</option>
-                        <option>Vendor Agreement</option>
+                        <option value="">Select template</option>
+                        {templates.map((tmpl) => (
+                          <option key={tmpl.id} value={tmpl.name}>
+                            {tmpl.name}
+                          </option>
+                        ))}
                     </select>
                     <div className="absolute right-3 top-3.5 pointer-events-none text-slate-400">▼</div>
                 </div>
@@ -380,6 +753,7 @@ const AgreementGenerator: React.FC<GeneratorProps> = ({ onSave, onBack, initialD
           </div>
       </div>
     </div>
+    </>
   );
 };
 

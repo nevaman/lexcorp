@@ -11,6 +11,7 @@ import {
   LogOut,
   Building2,
   Briefcase,
+  Store,
 } from './ui/Icons';
 import { ViewMode } from '../types';
 
@@ -44,6 +45,9 @@ const Sidebar: React.FC<SidebarProps> = ({
     { id: 'generator', label: 'Drafting Studio', icon: FilePlus },
     { id: 'templates', label: 'Template Builder', icon: FileText },
     { id: 'analytics', label: 'Intelligence', icon: BarChart3 },
+    ...(isOrgAdmin || memberRole === 'branch_admin'
+      ? [{ id: 'vendors', label: 'Vendors', icon: Store }]
+      : []),
     { id: 'settings', label: 'Brand Settings', icon: Settings },
     ...(isOrgAdmin
       ? [{ id: 'offices', label: 'Office Network', icon: Building2 }]

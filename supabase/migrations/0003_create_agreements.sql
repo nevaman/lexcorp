@@ -28,4 +28,3 @@ create trigger set_agreements_updated_at
 before update on public.agreements
 for each row
 execute procedure public.set_updated_at();
-

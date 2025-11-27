@@ -42,6 +42,10 @@ import {
   Loader2,
   X,
   Mail,
+  Store,
+  Paperclip,
+  UploadCloud,
+  ShieldCheck,
 } from 'lucide-react';
 
 export {
@@ -88,4 +92,8 @@ export {
   Loader2,
   X,
   Mail,
+  Store,
+  Paperclip,
+  UploadCloud,
+  ShieldCheck,
 };

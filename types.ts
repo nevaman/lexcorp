@@ -51,6 +51,7 @@ export interface Agreement {
   id: string;
   title: string;
   counterparty: string;
+  branchOfficeId?: string | null;
   department: string;
   owner: string;
   effectiveDate: string;
@@ -128,6 +129,29 @@ export interface BranchOffice {
   updated_at: string;
 }
 
+export interface VendorDocument {
+  id: string;
+  name: string;
+  url: string;
+  uploaded_at: string;
+  mime_type?: string | null;
+}
+
+export interface Vendor {
+  id: string;
+  organization_id: string;
+  branch_office_id?: string | null;
+  name: string;
+  tin: string;
+  contact_email?: string | null;
+  contact_phone?: string | null;
+  notes?: string | null;
+  documents: VendorDocument[];
+  created_by?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export type ViewMode =
   | 'dashboard'
   | 'generator'
@@ -135,4 +159,5 @@ export type ViewMode =
   | 'analytics'
   | 'settings'
   | 'offices'
-  | 'departments';
+  | 'departments'
+  | 'vendors';

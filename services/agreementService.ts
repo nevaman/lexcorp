@@ -4,6 +4,7 @@ import { Agreement } from '../types';
 type AgreementRow = {
   id: string;
   organization_id: string;
+  branch_office_id: string | null;
   owner_user_id: string | null;
   title: string;
   counterparty: string;
@@ -27,6 +28,7 @@ const rowToAgreement = (row: AgreementRow): Agreement => ({
   id: row.id,
   title: row.title,
   counterparty: row.counterparty || '',
+  branchOfficeId: row.branch_office_id || null,
   department: row.department || '',
   owner: row.owner || '',
   effectiveDate: row.effective_date || '',
@@ -44,13 +46,21 @@ const rowToAgreement = (row: AgreementRow): Agreement => ({
 });
 
 export const fetchAgreementsForOrganization = async (
-  organizationId: string
+  organizationId: string,
+  options?: { branchOfficeId?: string | null }
 ): Promise<Agreement[]> => {
-  const { data, error } = await supabase
+  if (!organizationId) return [];
+
+  let query = supabase
     .from('agreements')
     .select('*')
-    .eq('organization_id', organizationId)
-    .order('created_at', { ascending: false });
+    .eq('organization_id', organizationId);
+
+  if (options?.branchOfficeId) {
+    query = query.eq('branch_office_id', options.branchOfficeId);
+  }
+
+  const { data, error } = await query.order('created_at', { ascending: false });
 
   if (error) throw error;
 
@@ -66,6 +76,7 @@ export const upsertAgreementForOrganization = async (
     id: agreement.id,
     organization_id: organizationId,
     owner_user_id: ownerUserId ?? null,
+    branch_office_id: agreement.branchOfficeId ?? null,
     title: agreement.title,
     counterparty: agreement.counterparty,
     department: agreement.department,
