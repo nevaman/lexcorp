@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Sidebar from './components/Sidebar';
 import DocumentManager from './views/DocumentManager';
 import AgreementGenerator from './views/AgreementGenerator';
@@ -11,6 +11,7 @@ import AuthLanding from './views/AuthLanding';
 import BranchInvite from './views/BranchInvite';
 import BranchUserManager from './views/BranchUserManager';
 import VendorManager from './views/VendorManager';
+import ProjectManager from './views/ProjectManager';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import {
   fetchAgreementsForOrganization,
@@ -30,6 +31,7 @@ const ROUTABLE_VIEWS: ViewMode[] = [
   'settings',
   'offices',
   'vendors',
+  'projects',
   'departments',
 ];
 
@@ -74,6 +76,11 @@ const AppShell: React.FC = () => {
   const [agreementsLoading, setAgreementsLoading] = useState(false);
   const [agreementsError, setAgreementsError] = useState<string | null>(null);
   const [editingAgreement, setEditingAgreement] = useState<Agreement | undefined>(undefined);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return window.innerWidth <= 1400;
+  });
+  const autoCollapseRef = useRef<boolean>(sidebarCollapsed);
   
   const [brandSettings, setBrandSettings] = useState<BrandSettings>({
     companyName: 'LexCorp',
@@ -82,6 +89,29 @@ const AppShell: React.FC = () => {
     logoUrl: null,
     tone: 'Professional, firm, and concise.'
   });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleResponsiveSidebar = () => {
+      const shouldAutoCollapse = window.innerWidth <= 1400;
+      if (shouldAutoCollapse && !autoCollapseRef.current) {
+        autoCollapseRef.current = true;
+        setSidebarCollapsed(true);
+      } else if (!shouldAutoCollapse && autoCollapseRef.current) {
+        autoCollapseRef.current = false;
+        setSidebarCollapsed(false);
+      }
+    };
+
+    handleResponsiveSidebar();
+    window.addEventListener('resize', handleResponsiveSidebar);
+    return () => window.removeEventListener('resize', handleResponsiveSidebar);
+  }, []);
+
+  const handleSidebarToggle = useCallback(() => {
+    autoCollapseRef.current = false;
+    setSidebarCollapsed((prev) => !prev);
+  }, []);
 
   const handleSignOut = () => {
     signOut().catch((err) => console.error('Sign out failed', err));
@@ -95,6 +125,11 @@ const AppShell: React.FC = () => {
       if (targetView === 'departments' && !isBranchAdmin) return DEFAULT_VIEW;
       if (
         targetView === 'vendors' &&
+        !(isOrgAdmin || isBranchAdmin)
+      )
+        return DEFAULT_VIEW;
+      if (
+        targetView === 'projects' &&
         !(isOrgAdmin || isBranchAdmin)
       )
         return DEFAULT_VIEW;
@@ -302,6 +337,15 @@ const AppShell: React.FC = () => {
               onOpenAgreement={handleOpenAgreement}
             />
           );
+      case 'projects':
+        return (isOrgAdmin || isBranchAdmin)
+          ? <ProjectManager brandSettings={brandSettings} />
+          : (
+            <DocumentManager
+              agreements={agreements}
+              onOpenAgreement={handleOpenAgreement}
+            />
+          );
       default:
         return (
           <DocumentManager
@@ -334,7 +378,7 @@ const AppShell: React.FC = () => {
         isDarkMode ? 'bg-[#020617] text-slate-200' : 'bg-slate-50 text-slate-900'
       }`}
     >
-      <Sidebar 
+          <Sidebar 
         currentView={view} 
         setView={handleSidebarNavigate}
         isDarkMode={isDarkMode}
@@ -345,8 +389,14 @@ const AppShell: React.FC = () => {
         signingOut={actionLoading}
         isOrgAdmin={isOrgAdmin}
         memberRole={memberRole}
+            collapsed={sidebarCollapsed}
+            onToggleCollapse={handleSidebarToggle}
       />
-      <main className="flex-1 ml-72 h-screen overflow-auto scrollbar-hide bg-gradient-to-br from-slate-50 to-slate-100 dark:from-[#020617] dark:to-[#0f172a]">
+      <main
+        className={`flex-1 ${
+          sidebarCollapsed ? 'ml-24' : 'ml-72'
+        } h-screen overflow-auto scrollbar-hide bg-gradient-to-br from-slate-50 to-slate-100 dark:from-[#020617] dark:to-[#0f172a] transition-all duration-300`}
+      >
         {renderContent()}
       </main>
     </div>

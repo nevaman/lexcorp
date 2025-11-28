@@ -7,6 +7,7 @@ import {
   BrandSettings,
   Template,
   Vendor,
+  Project,
   BranchOffice,
 } from '../types';
 import {
@@ -19,10 +20,12 @@ import {
   Plus,
   X,
   Loader2,
+  ClipboardList,
 } from '../components/ui/Icons';
 import { generateClauseContent, analyzeRisk } from '../services/geminiService';
 import { fetchTemplates } from '../services/templateService';
 import { fetchVendors, createVendor } from '../services/vendorService';
+import { fetchProjects, createProject } from '../services/projectService';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../services/supabaseClient';
 
@@ -69,6 +72,21 @@ const AgreementGenerator: React.FC<GeneratorProps> = ({
     branchOfficeId: branchOfficeId ?? '',
     contactEmail: '',
   });
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [projectsLoading, setProjectsLoading] = useState(false);
+  const [projectError, setProjectError] = useState<string | null>(null);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(
+    initialData?.projectId ?? null
+  );
+  const [showQuickProject, setShowQuickProject] = useState(false);
+  const [quickProjectSaving, setQuickProjectSaving] = useState(false);
+  const [quickProjectError, setQuickProjectError] = useState<string | null>(null);
+  const [quickProjectForm, setQuickProjectForm] = useState({
+    name: '',
+    description: '',
+    scope: isOrgAdmin ? 'organization' : 'branch',
+    branchOfficeId: branchOfficeId ?? '',
+  });
   useEffect(() => {
     const loadTemplates = async () => {
       if (!organization) return;
@@ -109,6 +127,30 @@ const AgreementGenerator: React.FC<GeneratorProps> = ({
   }, [organization?.id, branchOfficeId, isOrgAdmin]);
 
   useEffect(() => {
+    const loadProjects = async () => {
+      if (!organization) return;
+      setProjectsLoading(true);
+      setProjectError(null);
+      try {
+        const data = await fetchProjects({
+          organizationId: organization.id,
+          branchOfficeId: isOrgAdmin ? undefined : branchOfficeId ?? null,
+          scope: isOrgAdmin ? 'all' : 'branch',
+          statuses: ['active'],
+        });
+        setProjects(data);
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : 'Unable to load projects.';
+        setProjectError(message);
+      } finally {
+        setProjectsLoading(false);
+      }
+    };
+    loadProjects();
+  }, [organization?.id, branchOfficeId, isOrgAdmin]);
+
+  useEffect(() => {
     if (!counterparty) {
       setSelectedVendorId(null);
       return;
@@ -134,6 +176,14 @@ const AgreementGenerator: React.FC<GeneratorProps> = ({
 
   useEffect(() => {
     setQuickVendorForm((prev) => ({
+      ...prev,
+      branchOfficeId: branchOfficeId ?? '',
+      scope: isOrgAdmin ? prev.scope : 'branch',
+    }));
+  }, [branchOfficeId, isOrgAdmin]);
+
+  useEffect(() => {
+    setQuickProjectForm((prev) => ({
       ...prev,
       branchOfficeId: branchOfficeId ?? '',
       scope: isOrgAdmin ? prev.scope : 'branch',
@@ -188,6 +238,14 @@ const AgreementGenerator: React.FC<GeneratorProps> = ({
       reason: initialData ? 'Existing agreement loaded.' : 'Standard draft.',
     });
   }, [initialData]);
+
+  useEffect(() => {
+    if (initialData?.projectId) {
+      setSelectedProjectId(initialData.projectId);
+    } else if (!initialData) {
+      setSelectedProjectId(null);
+    }
+  }, [initialData?.projectId, initialData]);
 
   const generateId = () => {
     if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -276,12 +334,81 @@ const AgreementGenerator: React.FC<GeneratorProps> = ({
     }
   };
 
+  const handleProjectSelect = (value: string) => {
+    if (value === '__add') {
+      setQuickProjectForm({
+        name: '',
+        description: '',
+        scope: isOrgAdmin ? 'organization' : 'branch',
+        branchOfficeId: branchOfficeId ?? '',
+      });
+      setQuickProjectError(null);
+      setShowQuickProject(true);
+      return;
+    }
+    if (!value) {
+      setSelectedProjectId(null);
+      return;
+    }
+    setSelectedProjectId(value);
+  };
+
+  const handleQuickProjectClose = () => {
+    setShowQuickProject(false);
+    setQuickProjectError(null);
+  };
+
+  const handleQuickProjectSave = async () => {
+    if (!organization) return;
+    if (!quickProjectForm.name.trim()) {
+      setQuickProjectError('Project name is required.');
+      return;
+    }
+    const branchAssignment = isOrgAdmin
+      ? quickProjectForm.scope === 'organization'
+        ? null
+        : quickProjectForm.branchOfficeId || null
+      : branchOfficeId;
+    if (quickProjectForm.scope === 'branch' && !branchAssignment) {
+      setQuickProjectError('Assign a branch to create this project.');
+      return;
+    }
+    setQuickProjectSaving(true);
+    setQuickProjectError(null);
+    try {
+      const newProject = await createProject({
+        organizationId: organization.id,
+        branchOfficeId: branchAssignment ?? null,
+        name: quickProjectForm.name.trim(),
+        description: quickProjectForm.description.trim() || undefined,
+        status: 'active',
+        createdBy: user?.id,
+      });
+      setProjects((prev) => [newProject, ...prev]);
+      setSelectedProjectId(newProject.id);
+      setShowQuickProject(false);
+      setQuickProjectForm({
+        name: '',
+        description: '',
+        scope: isOrgAdmin ? 'organization' : 'branch',
+        branchOfficeId: branchOfficeId ?? '',
+      });
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : 'Unable to create project.';
+      setQuickProjectError(message);
+    } finally {
+      setQuickProjectSaving(false);
+    }
+  };
+
   const handleSave = async () => {
     const newAgreement: Agreement = {
       id: initialData?.id || generateId(),
       title,
       counterparty,
       branchOfficeId: branchOfficeId ?? initialData?.branchOfficeId ?? null,
+      projectId: selectedProjectId ?? initialData?.projectId ?? null,
       department: initialData?.department || 'Legal',
       owner: initialData?.owner || 'Current User',
       effectiveDate: initialData?.effectiveDate || new Date().toISOString().split('T')[0],
@@ -316,6 +443,141 @@ const AgreementGenerator: React.FC<GeneratorProps> = ({
 
   return (
     <>
+      {showQuickProject && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white dark:bg-[#0f172a] rounded-3xl shadow-2xl w-full max-w-lg p-8 relative">
+            <button
+              className="absolute top-4 right-4 text-slate-500 hover:text-slate-800 dark:hover:text-white"
+              onClick={handleQuickProjectClose}
+            >
+              <X size={18} />
+            </button>
+            <div className="flex items-center gap-3 mb-6">
+              <span className="w-12 h-12 rounded-2xl bg-brand/10 text-brand flex items-center justify-center">
+                <ClipboardList size={20} />
+              </span>
+              <div>
+                <p className="text-xs uppercase tracking-[0.4em] text-slate-400 dark:text-slate-500">
+                  Quick Project
+                </p>
+                <h2 className="text-xl font-bold text-slate-900 dark:text-white">
+                  Add from Drafting Studio
+                </h2>
+              </div>
+            </div>
+            {quickProjectError && (
+              <div className="text-sm text-red-500 bg-red-50 border border-red-200 rounded-2xl px-3 py-2 mb-4">
+                {quickProjectError}
+              </div>
+            )}
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-bold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
+                  Project Name
+                </label>
+                <input
+                  type="text"
+                  value={quickProjectForm.name}
+                  onChange={(e) =>
+                    setQuickProjectForm((prev) => ({ ...prev, name: e.target.value }))
+                  }
+                  className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#020617] text-sm mt-1"
+                  placeholder="Growth Initiative"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-bold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
+                  Description
+                </label>
+                <textarea
+                  value={quickProjectForm.description}
+                  onChange={(e) =>
+                    setQuickProjectForm((prev) => ({
+                      ...prev,
+                      description: e.target.value,
+                    }))
+                  }
+                  rows={3}
+                  className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#020617] text-sm mt-1"
+                  placeholder="Optional summary..."
+                />
+              </div>
+              {isOrgAdmin && (
+                <div className="flex gap-3">
+                  <label className="flex-1 p-3 border border-slate-200 dark:border-slate-800 rounded-xl text-sm flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="quick-project-scope"
+                      value="organization"
+                      checked={quickProjectForm.scope === 'organization'}
+                      onChange={() =>
+                        setQuickProjectForm((prev) => ({ ...prev, scope: 'organization' }))
+                      }
+                    />
+                    Org-wide
+                  </label>
+                  <label className="flex-1 p-3 border border-slate-200 dark:border-slate-800 rounded-xl text-sm flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="quick-project-scope"
+                      value="branch"
+                      checked={quickProjectForm.scope === 'branch'}
+                      onChange={() =>
+                        setQuickProjectForm((prev) => ({ ...prev, scope: 'branch' }))
+                      }
+                    />
+                    Branch
+                  </label>
+                </div>
+              )}
+              {(isOrgAdmin || branchOfficeId) && quickProjectForm.scope === 'branch' && (
+                <div>
+                  <label className="text-xs font-bold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
+                    Assign Branch
+                  </label>
+                  <select
+                    value={
+                      isOrgAdmin
+                        ? quickProjectForm.branchOfficeId
+                        : branchOfficeId ?? quickProjectForm.branchOfficeId
+                    }
+                    onChange={(e) =>
+                      setQuickProjectForm((prev) => ({
+                        ...prev,
+                        branchOfficeId: e.target.value,
+                      }))
+                    }
+                    className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#020617] text-sm mt-1"
+                  >
+                    <option value="">Select branch</option>
+                    {branches.map((branch) => (
+                      <option key={branch.id} value={branch.id}>
+                        {branch.identifier} • {branch.location}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={handleQuickProjectSave}
+                disabled={quickProjectSaving}
+                className="w-full bg-brand text-white py-3 rounded-xl font-semibold flex items-center justify-center gap-2 mt-2 disabled:opacity-60"
+              >
+                {quickProjectSaving ? (
+                  <>
+                    <Loader2 className="animate-spin" size={16} /> Saving project…
+                  </>
+                ) : (
+                  <>
+                    <Plus size={16} /> Save Project
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {showQuickVendor && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="bg-white dark:bg-[#0f172a] rounded-3xl shadow-2xl w-full max-w-lg p-8 relative">
@@ -526,6 +788,38 @@ const AgreementGenerator: React.FC<GeneratorProps> = ({
                   {selectedVendorId && (
                     <p className="text-[11px] text-brand">
                       Linked to vendor record — edit vendor in the Vendors tab.
+                    </p>
+                  )}
+                </div>
+            </div>
+            <div className="space-y-2">
+                <label className="block text-[10px] font-bold text-brand/80 uppercase tracking-wider flex items-center gap-2">
+                  <ClipboardList size={12} /> Project
+                </label>
+                <div className="space-y-2">
+                  <select
+                    value={selectedProjectId || ''}
+                    onChange={(e) => handleProjectSelect(e.target.value)}
+                    className="w-full p-3 bg-slate-50 dark:bg-[#1e293b] border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-white focus:ring-2 focus:ring-brand/50 outline-none"
+                  >
+                    <option value="">
+                      {projectsLoading ? 'Loading projects…' : 'Unassigned'}
+                    </option>
+                    {projects
+                      .filter((project) => project.status === 'active')
+                      .map((project) => (
+                        <option key={project.id} value={project.id}>
+                          {project.name}
+                        </option>
+                      ))}
+                    <option value="__add">+ Add project</option>
+                  </select>
+                  {projectError && (
+                    <p className="text-xs text-red-500">{projectError}</p>
+                  )}
+                  {selectedProjectId && (
+                    <p className="text-[11px] text-brand">
+                      Linked to an active project workspace.
                     </p>
                   )}
                 </div>

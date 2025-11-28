@@ -169,4 +169,3 @@ export const uploadVendorDocument = async (params: {
 
   return response.json();
 };
-

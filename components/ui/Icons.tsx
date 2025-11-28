@@ -46,6 +46,9 @@ import {
   Paperclip,
   UploadCloud,
   ShieldCheck,
+  ClipboardList,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 
 export {
@@ -96,4 +99,7 @@ export {
   Paperclip,
   UploadCloud,
   ShieldCheck,
+  ClipboardList,
+  ChevronLeft,
+  ChevronRight,
 };

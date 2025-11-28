@@ -52,6 +52,7 @@ export interface Agreement {
   title: string;
   counterparty: string;
   branchOfficeId?: string | null;
+  projectId?: string | null;
   department: string;
   owner: string;
   effectiveDate: string;
@@ -129,6 +130,22 @@ export interface BranchOffice {
   updated_at: string;
 }
 
+export type ProjectStatus = 'active' | 'onhold' | 'completed';
+
+export interface Project {
+  id: string;
+  organization_id: string;
+  branch_office_id?: string | null;
+  name: string;
+  description?: string | null;
+  status: ProjectStatus;
+  start_date?: string | null;
+  end_date?: string | null;
+  created_by?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface VendorDocument {
   id: string;
   name: string;
@@ -160,4 +177,5 @@ export type ViewMode =
   | 'settings'
   | 'offices'
   | 'departments'
-  | 'vendors';
+  | 'vendors'
+  | 'projects';

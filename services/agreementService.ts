@@ -5,6 +5,7 @@ type AgreementRow = {
   id: string;
   organization_id: string;
   branch_office_id: string | null;
+  project_id: string | null;
   owner_user_id: string | null;
   title: string;
   counterparty: string;
@@ -29,6 +30,7 @@ const rowToAgreement = (row: AgreementRow): Agreement => ({
   title: row.title,
   counterparty: row.counterparty || '',
   branchOfficeId: row.branch_office_id || null,
+  projectId: row.project_id || null,
   department: row.department || '',
   owner: row.owner || '',
   effectiveDate: row.effective_date || '',
@@ -47,7 +49,7 @@ const rowToAgreement = (row: AgreementRow): Agreement => ({
 
 export const fetchAgreementsForOrganization = async (
   organizationId: string,
-  options?: { branchOfficeId?: string | null }
+  options?: { branchOfficeId?: string | null; projectId?: string | null }
 ): Promise<Agreement[]> => {
   if (!organizationId) return [];
 
@@ -58,6 +60,10 @@ export const fetchAgreementsForOrganization = async (
 
   if (options?.branchOfficeId) {
     query = query.eq('branch_office_id', options.branchOfficeId);
+  }
+
+  if (options?.projectId) {
+    query = query.eq('project_id', options.projectId);
   }
 
   const { data, error } = await query.order('created_at', { ascending: false });
@@ -77,6 +83,7 @@ export const upsertAgreementForOrganization = async (
     organization_id: organizationId,
     owner_user_id: ownerUserId ?? null,
     branch_office_id: agreement.branchOfficeId ?? null,
+    project_id: agreement.projectId ?? null,
     title: agreement.title,
     counterparty: agreement.counterparty,
     department: agreement.department,
@@ -104,3 +111,9 @@ export const upsertAgreementForOrganization = async (
   return rowToAgreement(data as AgreementRow);
 };
 
+export const fetchAgreementsForProject = async (
+  organizationId: string,
+  projectId: string
+): Promise<Agreement[]> => {
+  return fetchAgreementsForOrganization(organizationId, { projectId });
+};
